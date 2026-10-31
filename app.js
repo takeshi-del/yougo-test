@@ -1,7 +1,7 @@
 (() => {
   const STORAGE_KEY = "yougo-test-v1";
   // 結果を記録する Apps Script ウェブアプリのURL（gas/Code.gs を参照）
-  const RESULT_URL = "";
+  const RESULT_URL = "https://script.google.com/macros/s/AKfycby9hxc3Wbuvl2oUC0C-9OeLIDn0Z6vx8vlhkQJQKiX92Ai9i0Zh9SzHbIA0rl8JCKIM/exec";
   const LETTERS = ["A", "B", "C"];
   const RETAKE_DAYS = 1; // 翌日の 0:00 から受験できる
 
