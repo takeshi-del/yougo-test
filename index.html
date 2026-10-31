@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>用語集 確認テスト</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>用語集 確認テスト</h1>
+</header>
+
+<main>
+  <!-- スタート画面 -->
+  <section id="screen-home" class="screen">
+    <div class="card">
+      <h2>レベル1（3択問題）</h2>
+      <ul class="rules">
+        <li>3択問題100問・100点満点（1問1点）</li>
+        <li><strong>80点以上で合格</strong></li>
+        <li>解答中は正誤は表示されません。最後に点数と、間違えた問題の解説が表示されます</li>
+        <li>結果（受験日時・氏名・点数・所要時間）は記録されます。次に受けられるのは2日後です</li>
+      </ul>
+
+      <label for="user-name" class="field-label">お名前</label>
+      <input type="text" id="user-name" placeholder="例：山田 太郎" maxlength="40">
+      <p id="name-error" class="error hidden">お名前を入力してからスタートしてください</p>
+      <p id="retake-lock" class="error hidden"></p>
+
+      <button id="btn-start" class="primary">テストを開始する</button>
+    </div>
+  </section>
+
+  <!-- 出題画面 -->
+  <section id="screen-quiz" class="screen hidden">
+    <div class="progress-row">
+      <span><span id="quiz-name"></span><span id="progress-text"></span></span>
+      <span id="timer" class="muted"></span>
+    </div>
+    <div class="progress-bar"><div id="progress-fill"></div></div>
+
+    <div class="card">
+      <div class="tags" id="q-tags"></div>
+      <p class="question" id="q-text"></p>
+      <div id="choices" class="choices"></div>
+      <div id="feedback" class="feedback hidden"></div>
+
+      <div class="nav-row">
+        <button id="btn-quit" class="secondary">中断する</button>
+        <button id="btn-next" class="primary hidden">次へ</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 結果画面 -->
+  <section id="screen-result" class="screen hidden">
+    <div class="card result-summary">
+      <h2>結果</h2>
+      <p id="result-name" class="result-name"></p>
+      <p class="big-score" id="result-score"></p>
+      <p id="result-pass" class="hidden"></p>
+      <p id="result-rate" class="muted"></p>
+      <p id="result-time"></p>
+      <p id="result-retake" class="retake hidden"></p>
+      <p id="result-send" class="muted"></p>
+    </div>
+    <div class="card" id="result-cat-card">
+      <h2>分野別の正答率</h2>
+      <table id="result-by-cat"></table>
+    </div>
+    <div class="card">
+      <h2>間違えた問題（復習）</h2>
+      <div id="result-wrong"></div>
+    </div>
+    <div class="nav-row">
+      <button id="btn-retry-wrong" class="secondary">間違えた問題をもう一度</button>
+      <button id="btn-home" class="primary">トップに戻る</button>
+    </div>
+  </section>
+</main>
+
+<script src="questions.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
