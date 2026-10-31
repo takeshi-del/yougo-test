@@ -3,7 +3,7 @@
   // 結果を記録する Apps Script ウェブアプリのURL（gas/Code.gs を参照）
   const RESULT_URL = "";
   const LETTERS = ["A", "B", "C"];
-  const RETAKE_DAYS = 2;
+  const RETAKE_DAYS = 1; // 翌日の 0:00 から受験できる
 
   // レベル1：3択100問・1問1点・80点以上で合格（自動採点）
   // レベル2：記述20問（回答をスプレッドシートに送り、先輩が採点）
@@ -22,13 +22,14 @@
     return e;
   };
 
-  // ---------- 保存データ（名前とレベルごとの再受験可能日） ----------
+  // ---------- 保存データ（前回の名前と、名前・レベルごとの再受験可能日） ----------
+  // locks: { 名前: { レベル: 再受験できる日時(ms) } }
   function loadStore() {
     try {
       const s = JSON.parse(localStorage.getItem(STORAGE_KEY));
-      if (s && typeof s === "object") return { ...s, next: s.next || {} };
+      if (s && typeof s === "object") return { name: s.name, locks: s.locks || {} };
     } catch (_) {}
-    return { next: {} };
+    return { locks: {} };
   }
   const store = loadStore();
   const saveStore = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
@@ -56,17 +57,28 @@
   }
 
   // ---------- スタート画面 ----------
-  // 前回の受験から2日経っていなければ開始ボタンを止める（このブラウザでの受験に限る）
-  function isLocked(level) {
-    return !!store.next[level] && Date.now() < store.next[level];
+  // 同じ名前で受験済みなら翌日まで開始ボタンを止める（このブラウザでの受験に限る。別の名前なら受けられる）
+  // 名前はスペース（全角・半角）を除いて比べる
+  const nameKey = (name) => name.replace(/\s+/g, "");
+
+  function lockUntil(name, level) {
+    const until = (store.locks[nameKey(name)] || {})[level];
+    return until && Date.now() < until ? until : null;
+  }
+
+  function setLock(name, level, until) {
+    const key = nameKey(name);
+    store.locks[key] = { ...store.locks[key], [level]: until };
+    saveStore();
   }
 
   function updateRetakeLocks() {
+    const name = $("user-name").value.trim();
     Object.keys(LEVELS).forEach((level) => {
-      const locked = isLocked(level);
-      $(`btn-start-${level}`).disabled = locked;
-      $(`lock-${level}`).classList.toggle("hidden", !locked);
-      if (locked) $(`lock-${level}`).textContent = `次に受けられるのは ${formatDay(new Date(store.next[level]))} 以降です。`;
+      const until = name && lockUntil(name, level);
+      $(`btn-start-${level}`).disabled = !!until;
+      $(`lock-${level}`).classList.toggle("hidden", !until);
+      if (until) $(`lock-${level}`).textContent = `${name} さんは受験済みです。次に受けられるのは ${formatDay(new Date(until))} 以降です。`;
     });
   }
 
@@ -109,9 +121,9 @@
   }
 
   function startOfficial(level) {
-    if (isLocked(level)) return updateRetakeLocks();
     const name = requireName();
     if (!name) return;
+    if (lockUntil(name, level)) return updateRetakeLocks();
     const cfg = LEVELS[level];
     startSession({ name, level, type: cfg.type, questions: shuffle(cfg.bank).slice(0, cfg.count), official: true });
   }
@@ -217,12 +229,12 @@
   function finishCommon() {
     clearInterval(timerId);
     const sec = elapsedSec();
-    store.next[session.level] = retakeDate(new Date()).getTime();
-    saveStore();
+    const until = retakeDate(new Date()).getTime();
+    setLock(session.name, session.level, until);
 
     $("result-name").textContent = `${session.name} さん`;
     $("result-time").textContent = `所要時間 ${formatDuration(sec)}`;
-    $("result-retake").textContent = `次にこのテストを受けられるのは、${RETAKE_DAYS}日後の ${formatDay(new Date(store.next[session.level]))} 以降です。`;
+    $("result-retake").textContent = `次にこのテストを受けられるのは、翌日の ${formatDay(new Date(until))} 以降です。`;
     $("progress-fill").style.width = "100%";
     return sec;
   }
@@ -396,6 +408,7 @@
   $("user-name").addEventListener("input", () => {
     $("user-name").classList.remove("invalid");
     $("name-error").classList.add("hidden");
+    updateRetakeLocks();
   });
 
   // キーボード操作（3択のみ）：1/2/3 または A/B/C で選択
