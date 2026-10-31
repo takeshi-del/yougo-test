@@ -377,6 +377,12 @@
     showScreen("home");
   }
 
+  // URL の ?level=1 / ?level=2 で、そのレベルだけを表示する（指定なしは両方）
+  const onlyLevel = new URLSearchParams(location.search).get("level");
+  if (LEVELS[onlyLevel]) {
+    Object.keys(LEVELS).forEach((level) => $(`level-card-${level}`).classList.toggle("hidden", level !== onlyLevel));
+  }
+
   // ---------- イベント ----------
   Object.keys(LEVELS).forEach((level) => $(`btn-start-${level}`).addEventListener("click", () => startOfficial(level)));
   $("btn-next").addEventListener("click", nextQuestion);
