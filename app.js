@@ -3,12 +3,17 @@
   // 結果を記録する Apps Script ウェブアプリのURL（gas/Code.gs を参照）
   const RESULT_URL = "";
   const LETTERS = ["A", "B", "C"];
-
-  // レベル1：3択100問・1問1点・80点以上で合格
-  const LEVEL = 1;
-  const QUESTION_COUNT = 100;
-  const PASS_SCORE = 80;
   const RETAKE_DAYS = 2;
+
+  // レベル1：3択100問・1問1点・80点以上で合格（自動採点）
+  // レベル2：記述20問（回答をスプレッドシートに送り、先輩が採点）
+  const LEVELS = {
+    1: { type: "mc", count: 100, pass: 80, bank: QUESTIONS.mc },
+    2: { type: "wr", count: 20, bank: QUESTIONS.wr },
+  };
+  // 分野別の判定：この正答率以上を「得意」、未満を「苦手」とする
+  const STRONG_RATE = 0.9;
+  const WEAK_RATE = 0.8;
 
   const $ = (id) => document.getElementById(id);
   const el = (tag, props = {}, children = []) => {
@@ -17,13 +22,13 @@
     return e;
   };
 
-  // ---------- 保存データ（名前と再受験可能日） ----------
+  // ---------- 保存データ（名前とレベルごとの再受験可能日） ----------
   function loadStore() {
     try {
       const s = JSON.parse(localStorage.getItem(STORAGE_KEY));
-      if (s && typeof s === "object") return s;
+      if (s && typeof s === "object") return { ...s, next: s.next || {} };
     } catch (_) {}
-    return {};
+    return { next: {} };
   }
   const store = loadStore();
   const saveStore = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
@@ -40,6 +45,7 @@
 
   const formatDuration = (sec) => `${Math.floor(sec / 60)}分${String(sec % 60).padStart(2, "0")}秒`;
   const formatDay = (d) => `${d.getMonth() + 1}月${d.getDate()}日（${"日月火水木金土"[d.getDay()]}）`;
+  const percent = (ok, total) => `${Math.round((ok / total) * 100)}%`;
 
   // 再受験できる日：受験日の RETAKE_DAYS 日後の 0:00
   function retakeDate(from) {
@@ -51,12 +57,17 @@
 
   // ---------- スタート画面 ----------
   // 前回の受験から2日経っていなければ開始ボタンを止める（このブラウザでの受験に限る）
-  function updateRetakeLock() {
-    const locked = !!store.nextOfficial && Date.now() < store.nextOfficial;
-    $("btn-start").disabled = locked;
-    $("retake-lock").classList.toggle("hidden", !locked);
-    if (locked) $("retake-lock").textContent = `次に受けられるのは ${formatDay(new Date(store.nextOfficial))} 以降です。`;
-    return locked;
+  function isLocked(level) {
+    return !!store.next[level] && Date.now() < store.next[level];
+  }
+
+  function updateRetakeLocks() {
+    Object.keys(LEVELS).forEach((level) => {
+      const locked = isLocked(level);
+      $(`btn-start-${level}`).disabled = locked;
+      $(`lock-${level}`).classList.toggle("hidden", !locked);
+      if (locked) $(`lock-${level}`).textContent = `次に受けられるのは ${formatDay(new Date(store.next[level]))} 以降です。`;
+    });
   }
 
   // 名前が未入力ならスタートさせない
@@ -74,16 +85,16 @@
   }
 
   // ---------- 出題 ----------
-  // official: 本番テスト（正誤を出さず、最後に採点して記録する）
-  // official でないとき：間違えた問題の復習（1問ごとに正誤と解説を出す。記録しない）
+  // official: 本番テスト（その場では正誤を出さず、最後にまとめて記録する）
+  // official でないとき：3択の間違えた問題の復習（1問ごとに正誤と解説を出す。記録しない）
   let session = null;
   let timerId = null;
 
   const elapsedSec = () => Math.floor((Date.now() - session.startedAt) / 1000);
   const updateTimer = () => { $("timer").textContent = `経過 ${formatDuration(elapsedSec())}`; };
 
-  function startSession(name, questions, official) {
-    session = { name, official, questions, index: 0, results: [], selected: null, answered: false, startedAt: Date.now() };
+  function startSession({ name, level, type, questions, official }) {
+    session = { name, level, type, official, questions, index: 0, results: [], selected: null, answered: false, startedAt: Date.now() };
     $("quiz-name").textContent = `${name} さん　`;
     $("timer").classList.toggle("hidden", !official);
     clearInterval(timerId);
@@ -91,20 +102,24 @@
       timerId = setInterval(updateTimer, 1000);
       updateTimer();
     }
+    $("mc-area").classList.toggle("hidden", type !== "mc");
+    $("wr-area").classList.toggle("hidden", type !== "wr");
     showScreen("quiz");
     renderQuestion();
   }
 
-  function startOfficial() {
-    if (updateRetakeLock()) return;
+  function startOfficial(level) {
+    if (isLocked(level)) return updateRetakeLocks();
     const name = requireName();
     if (!name) return;
-    startSession(name, shuffle(QUESTIONS.mc).slice(0, QUESTION_COUNT), true);
+    const cfg = LEVELS[level];
+    startSession({ name, level, type: cfg.type, questions: shuffle(cfg.bank).slice(0, cfg.count), official: true });
   }
 
   function renderQuestion() {
     const q = session.questions[session.index];
     const total = session.questions.length;
+    const isLast = session.index + 1 === total;
     session.selected = null;
     session.answered = false;
 
@@ -112,20 +127,27 @@
     $("progress-fill").style.width = `${(session.index / total) * 100}%`;
 
     $("q-tags").innerHTML = "";
-    [q.kind, q.cat].forEach((t) => $("q-tags").append(el("span", { className: "tag", textContent: t })));
+    const tags = session.type === "mc" ? [q.kind, q.cat] : [q.field, q.cat];
+    tags.forEach((t) => $("q-tags").append(el("span", { className: "tag", textContent: t })));
     $("q-text").textContent = q.q;
-
     $("feedback").classList.add("hidden");
-    $("btn-next").classList.add("hidden");
-    $("btn-next").textContent = session.index + 1 === total ? (session.official ? "解答を終了して採点する" : "終了") : "次へ";
 
-    const box = $("choices");
-    box.innerHTML = "";
-    q.choices.forEach((c, i) => {
-      const btn = el("button", { className: "choice" }, [el("span", { className: "letter", textContent: LETTERS[i] }), c]);
-      btn.addEventListener("click", () => choose(LETTERS[i]));
-      box.append(btn);
-    });
+    if (session.type === "mc") {
+      $("btn-next").classList.add("hidden");
+      $("btn-next").textContent = isLast ? (session.official ? "解答を終了して採点する" : "終了") : "次へ";
+      const box = $("choices");
+      box.innerHTML = "";
+      q.choices.forEach((c, i) => {
+        const btn = el("button", { className: "choice" }, [el("span", { className: "letter", textContent: LETTERS[i] }), c]);
+        btn.addEventListener("click", () => choose(LETTERS[i]));
+        box.append(btn);
+      });
+    } else {
+      $("btn-next").classList.remove("hidden");
+      $("btn-next").textContent = isLast ? "回答を提出する" : "次へ";
+      $("wr-input").value = "";
+      $("wr-input").focus();
+    }
     window.scrollTo(0, 0);
   }
 
@@ -163,65 +185,109 @@
   }
 
   function nextQuestion() {
-    if (session.official) {
+    const q = session.questions[session.index];
+    const isLast = session.index + 1 === session.questions.length;
+
+    if (session.type === "wr") {
+      const answer = $("wr-input").value.trim();
+      if (!answer && !confirm("回答が空欄です。このまま次へ進みますか？")) return;
+      if (isLast && !confirm("回答を提出します。提出後は修正できません。よろしいですか？")) return;
+      session.results.push({ q, answer });
+    } else if (session.official) {
       if (!session.selected) return;
-      const q = session.questions[session.index];
       session.results.push({ q, ok: session.selected === q.ans, yourAnswer: session.selected });
     }
+
     session.index++;
-    if (session.index < session.questions.length) renderQuestion();
-    else if (session.official) finishOfficial();
-    else showHome();
+    if (!isLast) renderQuestion();
+    else if (!session.official) showHome();
+    else if (session.type === "mc") finishMc();
+    else finishWr();
   }
 
   function quitSession() {
     const msg = session.official
-      ? "テストを中断しますか？ 途中までの結果は記録されません。"
+      ? "テストを中断しますか？ 途中までの回答は記録されません。"
       : "復習を終了してトップに戻りますか？";
     if (confirm(msg)) showHome();
   }
 
   // ---------- 結果 ----------
-  function finishOfficial() {
+  // 本番テストを終えたときの共通処理（再受験日の設定と、結果画面の共通部分）
+  function finishCommon() {
     clearInterval(timerId);
-    const results = session.results;
-    const score = results.filter((r) => r.ok).length;
     const sec = elapsedSec();
-    const passed = score >= PASS_SCORE;
-    store.nextOfficial = retakeDate(new Date()).getTime();
+    store.next[session.level] = retakeDate(new Date()).getTime();
     saveStore();
 
     $("result-name").textContent = `${session.name} さん`;
-    $("result-score").textContent = `${score}点 / 100点満点`;
+    $("result-time").textContent = `所要時間 ${formatDuration(sec)}`;
+    $("result-retake").textContent = `次にこのテストを受けられるのは、${RETAKE_DAYS}日後の ${formatDay(new Date(store.next[session.level]))} 以降です。`;
+    $("progress-fill").style.width = "100%";
+    return sec;
+  }
+
+  // 分野別の集計（3択の分野一覧の順。今回出題がなかった分野は total 0）
+  function categoryStats(results) {
+    const order = [...new Set(QUESTIONS.mc.map((q) => q.cat))];
+    return order.map((name) => {
+      const rs = results.filter((r) => r.q.cat === name);
+      return { name, correct: rs.filter((r) => r.ok).length, total: rs.length };
+    });
+  }
+
+  function finishMc() {
+    const sec = finishCommon();
+    const cfg = LEVELS[session.level];
+    const results = session.results;
+    const score = results.filter((r) => r.ok).length;
+    const passed = score >= cfg.pass;
+
+    const cats = categoryStats(results);
+    const asked = cats.filter((c) => c.total > 0);
+    const strong = asked.filter((c) => c.correct / c.total >= STRONG_RATE).map((c) => c.name);
+    const weak = asked.filter((c) => c.correct / c.total < WEAK_RATE).map((c) => c.name);
+    const wrong = results.filter((r) => !r.ok);
+
+    $("result-score").textContent = `${score}点 / ${cfg.count}点満点`;
     $("result-pass").textContent = passed ? "合格" : "不合格";
     $("result-pass").className = `pass-badge ${passed ? "pass" : "fail"}`;
-    $("result-rate").textContent = `合格ライン ${PASS_SCORE}点`;
-    $("result-time").textContent = `所要時間 ${formatDuration(sec)}`;
-    $("result-retake").textContent = `次にこのテストを受けられるのは、${RETAKE_DAYS}日後の ${formatDay(new Date(store.nextOfficial))} 以降です。`;
-    $("result-retake").classList.remove("hidden");
-    sendResult({ level: LEVEL, name: session.name, score, total: QUESTION_COUNT, seconds: sec });
+    $("result-rate").textContent = `合格ライン ${cfg.pass}点`;
+    $("result-strong").textContent = strong.join("、") || "なし";
+    $("result-weak").textContent = weak.join("、") || "なし";
+
+    sendResult({
+      type: "mc",
+      name: session.name,
+      score,
+      total: cfg.count,
+      passed,
+      seconds: sec,
+      strong: strong.join("、"),
+      weak: weak.join("、"),
+      categories: cats,
+      wrong: wrong.map((r) => `No.${r.q.no}【${r.q.cat}】正解「${r.q.ansText}」／回答「${r.q.choices[LETTERS.indexOf(r.yourAnswer)]}」`),
+      correct: results.filter((r) => r.ok).map((r) => r.q.no).sort((a, b) => a - b),
+    });
 
     // 分野別の正答率（低い順）
-    const byCat = {};
-    results.forEach((r) => {
-      const c = (byCat[r.q.cat] ||= { ok: 0, total: 0 });
-      if (r.ok) c.ok++;
-      c.total++;
-    });
     const table = $("result-by-cat");
     table.innerHTML = "";
-    Object.entries(byCat)
-      .sort((x, y) => x[1].ok / x[1].total - y[1].ok / y[1].total)
-      .forEach(([cat, c]) => {
+    asked
+      .slice()
+      .sort((x, y) => x.correct / x.total - y.correct / y.total)
+      .forEach((c) => {
+        const rate = c.correct / c.total;
+        const mark = rate >= STRONG_RATE ? "得意" : rate < WEAK_RATE ? "苦手" : "";
         table.append(el("tr", {}, [
-          el("td", { textContent: cat }),
-          el("td", { className: "num", textContent: `${c.ok} / ${c.total}` }),
-          el("td", { className: "num", textContent: `${Math.round((c.ok / c.total) * 100)}%` }),
+          el("td", { textContent: c.name }),
+          el("td", { className: "num", textContent: `${c.correct} / ${c.total}` }),
+          el("td", { className: "num", textContent: percent(c.correct, c.total) }),
+          el("td", { className: `mark ${{ 得意: "strong", 苦手: "weak" }[mark] || ""}`, textContent: mark }),
         ]));
       });
 
     // 間違えた問題だけを正解・解説つきで表示
-    const wrong = results.filter((r) => !r.ok);
     const box = $("result-wrong");
     box.innerHTML = "";
     if (wrong.length === 0) box.append(el("p", { textContent: "全問正解です！" }));
@@ -234,10 +300,47 @@
         el("div", { className: "muted", textContent: q.exp }),
       ]));
     });
-    $("btn-retry-wrong").classList.toggle("hidden", wrong.length === 0);
     reviewQuestions = wrong.map((r) => r.q);
+    $("btn-retry-wrong").classList.toggle("hidden", wrong.length === 0);
 
-    $("progress-fill").style.width = "100%";
+    showResult("mc");
+  }
+
+  function finishWr() {
+    const sec = finishCommon();
+    const results = session.results;
+
+    $("result-score").textContent = "回答を提出しました";
+    $("result-rate").textContent = "採点は先輩が行います。結果はあとで連絡があります。";
+
+    sendResult({
+      type: "wr",
+      name: session.name,
+      seconds: sec,
+      answers: results.map((r) => ({ no: r.q.no, field: r.q.field, cat: r.q.cat, q: r.q.q, answer: r.answer, model: r.q.model, points: r.q.points })),
+    });
+
+    // 提出した回答と模範解答を並べて見直せるようにする
+    const box = $("result-answers");
+    box.innerHTML = "";
+    results.forEach((r, i) => {
+      box.append(el("div", { className: "wrong-item" }, [
+        el("div", { textContent: `${i + 1}．${r.q.q}` }),
+        el("div", { className: "yours", textContent: `あなたの回答：${r.answer || "（未回答）"}` }),
+        el("div", { className: "ans", textContent: `模範解答：${r.q.model}` }),
+        el("div", { className: "muted", textContent: `採点ポイント：${r.q.points}` }),
+      ]));
+    });
+
+    showResult("wr");
+  }
+
+  function showResult(type) {
+    $("result-pass").classList.toggle("hidden", type !== "mc");
+    $("result-strength").classList.toggle("hidden", type !== "mc");
+    ["result-cat-card", "result-wrong-card"].forEach((id) => $(id).classList.toggle("hidden", type !== "mc"));
+    $("result-answers-card").classList.toggle("hidden", type !== "wr");
+    if (type !== "mc") $("btn-retry-wrong").classList.add("hidden");
     showScreen("result");
   }
 
@@ -258,7 +361,7 @@
       body: JSON.stringify(payload),
     })
       .then(() => { status.textContent = "結果を記録しました"; })
-      .catch(() => { status.textContent = "※ 結果を記録できませんでした。通信環境を確認して、管理者に点数を伝えてください"; });
+      .catch(() => { status.textContent = "※ 結果を記録できませんでした。通信環境を確認して、管理者に連絡してください"; });
   }
 
   // ---------- 画面切り替え ----------
@@ -270,16 +373,18 @@
   function showHome() {
     clearInterval(timerId);
     session = null;
-    updateRetakeLock();
+    updateRetakeLocks();
     showScreen("home");
   }
 
   // ---------- イベント ----------
-  $("btn-start").addEventListener("click", startOfficial);
+  Object.keys(LEVELS).forEach((level) => $(`btn-start-${level}`).addEventListener("click", () => startOfficial(level)));
   $("btn-next").addEventListener("click", nextQuestion);
   $("btn-quit").addEventListener("click", quitSession);
   $("btn-home").addEventListener("click", showHome);
-  $("btn-retry-wrong").addEventListener("click", () => startSession(session.name, shuffle(reviewQuestions), false));
+  $("btn-retry-wrong").addEventListener("click", () =>
+    startSession({ name: session.name, level: session.level, type: "mc", questions: shuffle(reviewQuestions), official: false })
+  );
 
   $("user-name").value = store.name || "";
   $("user-name").addEventListener("input", () => {
@@ -287,14 +392,14 @@
     $("name-error").classList.add("hidden");
   });
 
-  // キーボード操作：1/2/3 または A/B/C で選択
+  // キーボード操作（3択のみ）：1/2/3 または A/B/C で選択
   document.addEventListener("keydown", (e) => {
-    if (!session || $("screen-quiz").classList.contains("hidden")) return;
-    if (e.target.tagName === "INPUT") return;
+    if (!session || session.type !== "mc" || $("screen-quiz").classList.contains("hidden")) return;
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
     const k = e.key.toUpperCase();
     const idx = ["1", "2", "3"].includes(k) ? Number(k) - 1 : LETTERS.indexOf(k);
     if (idx >= 0) choose(LETTERS[idx]);
   });
 
-  updateRetakeLock();
+  updateRetakeLocks();
 })();

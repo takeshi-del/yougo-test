@@ -15,20 +15,31 @@
   <!-- スタート画面 -->
   <section id="screen-home" class="screen">
     <div class="card">
-      <h2>レベル1（3択問題）</h2>
-      <ul class="rules">
-        <li>3択問題100問・100点満点（1問1点）</li>
-        <li><strong>80点以上で合格</strong></li>
-        <li>解答中は正誤は表示されません。最後に点数と、間違えた問題の解説が表示されます</li>
-        <li>結果（受験日時・氏名・点数・所要時間）は記録されます。次に受けられるのは2日後です</li>
-      </ul>
-
       <label for="user-name" class="field-label">お名前</label>
       <input type="text" id="user-name" placeholder="例：山田 太郎" maxlength="40">
       <p id="name-error" class="error hidden">お名前を入力してからスタートしてください</p>
-      <p id="retake-lock" class="error hidden"></p>
+    </div>
 
-      <button id="btn-start" class="primary">テストを開始する</button>
+    <div class="card level-card">
+      <h2>レベル1（3択問題）</h2>
+      <ul class="rules">
+        <li>3択問題100問・100点満点（1問1点）・<strong>80点以上で合格</strong></li>
+        <li>解答中は正誤は表示されません。最後に点数・分野別の正答率と、間違えた問題の解説が表示されます</li>
+        <li>結果は記録されます。次に受けられるのは2日後です</li>
+      </ul>
+      <p id="lock-1" class="error hidden"></p>
+      <button id="btn-start-1" class="primary start">レベル1を開始する</button>
+    </div>
+
+    <div class="card level-card">
+      <h2>レベル2（記述式）</h2>
+      <ul class="rules">
+        <li>記述問題20問。回答を入力して提出します</li>
+        <li>採点は先輩が行います。提出後に模範解答で見直しができます</li>
+        <li>回答は記録されます。次に受けられるのは2日後です</li>
+      </ul>
+      <p id="lock-2" class="error hidden"></p>
+      <button id="btn-start-2" class="primary start">レベル2を開始する</button>
     </div>
   </section>
 
@@ -43,7 +54,12 @@
     <div class="card">
       <div class="tags" id="q-tags"></div>
       <p class="question" id="q-text"></p>
-      <div id="choices" class="choices"></div>
+      <div id="mc-area">
+        <div id="choices" class="choices"></div>
+      </div>
+      <div id="wr-area">
+        <textarea id="wr-input" rows="6" placeholder="ここに回答を書いてください"></textarea>
+      </div>
       <div id="feedback" class="feedback hidden"></div>
 
       <div class="nav-row">
@@ -62,16 +78,25 @@
       <p id="result-pass" class="hidden"></p>
       <p id="result-rate" class="muted"></p>
       <p id="result-time"></p>
-      <p id="result-retake" class="retake hidden"></p>
+      <div id="result-strength" class="strength hidden">
+        <div><span class="strength-label strong">得意分野</span><span id="result-strong"></span></div>
+        <div><span class="strength-label weak">苦手分野</span><span id="result-weak"></span></div>
+      </div>
+      <p id="result-retake" class="retake"></p>
       <p id="result-send" class="muted"></p>
     </div>
     <div class="card" id="result-cat-card">
       <h2>分野別の正答率</h2>
+      <p class="muted">正答率90%以上を「得意」、80%未満を「苦手」としています</p>
       <table id="result-by-cat"></table>
     </div>
-    <div class="card">
+    <div class="card" id="result-wrong-card">
       <h2>間違えた問題（復習）</h2>
       <div id="result-wrong"></div>
+    </div>
+    <div class="card hidden" id="result-answers-card">
+      <h2>提出した回答と模範解答</h2>
+      <div id="result-answers"></div>
     </div>
     <div class="nav-row">
       <button id="btn-retry-wrong" class="secondary">間違えた問題をもう一度</button>
